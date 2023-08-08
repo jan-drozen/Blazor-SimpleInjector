@@ -14,6 +14,10 @@ using SimpleInjector.Advanced;
 using System.Xml.Linq;
 using MediatR;
 using MediatR.Pipeline;
+using Microsoft.AspNetCore.Mvc.Controllers;
+using Microsoft.AspNetCore.Mvc.ViewComponents;
+using SimpleInjector.Integration.AspNetCore.Mvc;
+
 
 namespace BlazorSimpleInjectorMediator
 {
@@ -24,42 +28,37 @@ namespace BlazorSimpleInjectorMediator
             public bool SelectProperty(Type type, PropertyInfo prop) =>
                 prop.GetCustomAttributes(typeof(DependencyAttribute)).Any();
         }
-        
-        
+
+
 
         public static void Main(string[] args)
         {
 
-            SimpleInjector.Container container = new SimpleInjector.Container();
+            Container container = new Container();
 
 
-        var builder = WebApplication.CreateBuilder(args);
+            var builder = WebApplication.CreateBuilder(args);
 
-                container.Options.PropertySelectionBehavior =
-                    new DependencyAttributePropertySelectionBehavior();
-            
+            container.Options.PropertySelectionBehavior =
+                new DependencyAttributePropertySelectionBehavior();
+
 
             // Add services to the container.
-            builder.Services.AddRazorPages();
-            builder.Services.AddServerSideBlazor();
+            builder.Services.AddRazorPages();            
             builder.Services.AddSingleton<WeatherForecastService>();
 
+            builder.Services.AddServerSideBlazor();
+            // If you plan on adding AspNetCore as well, change the
+            // ServiceScopeReuseBehavior to OnePerNestedScope as follows:
+            // options.AddAspNetCore(ServiceScopeReuseBehavior.OnePerNestedScope);
 
-            builder.Services.AddSimpleInjector(container, options =>
-            {
-                // If you plan on adding AspNetCore as well, change the
-                // ServiceScopeReuseBehavior to OnePerNestedScope as follows:
-                // options.AddAspNetCore(ServiceScopeReuseBehavior.OnePerNestedScope);
-
-                options.AddServerSideBlazor(typeof(Program).Assembly);
-            });
-
+            IntegrateSimpleInjector(builder.Services, container);            
             container.RegisterSingleton<WeatherForecastService>();
-            container.Register<IMediator>(() => new Mediator(container),Lifestyle.Scoped);
+            container.Register<IMediator>(() => new Mediator(container), Lifestyle.Scoped);
             container.Register<IScoped, TestScoped>(Lifestyle.Scoped);
             container.Register<IScopedCaller, ScopedCaller>(Lifestyle.Scoped);
             container.Register<IRequestHandler<TestScopedRequest>, TestScopedRequestHandler>(Lifestyle.Scoped);
-
+            container.Register<NavigationManagerWrapper>(Lifestyle.Scoped);
 
             var assemblies = new[] { typeof(Program).Assembly };
             //var assemblies = new[] { typeof(IMediator).Assembly, GetType().Assembly };
@@ -99,8 +98,28 @@ namespace BlazorSimpleInjectorMediator
 
             app.MapBlazorHub();
             app.MapFallbackToPage("/_Host");
-
             app.Run();
+        }
+
+
+        private static void IntegrateSimpleInjector(IServiceCollection services, Container container)
+        {
+            container.Options.DefaultScopedLifestyle = new AsyncScopedLifestyle();
+            services.AddSimpleInjector(container, options =>
+            {
+                options.AddAspNetCore(ServiceScopeReuseBehavior.OnePerNestedScope)
+                    .AddControllerActivation()
+                    .AddViewComponentActivation()
+                    ;
+                options.AddServerSideBlazor(new[] { typeof(Program).Assembly });
+
+            });
+
+            services.AddSingleton<IHttpContextAccessor, HttpContextAccessor>();
+
+            services.AddSingleton<IControllerActivator>(new SimpleInjectorControllerActivator(container));
+            services.AddSingleton<IViewComponentActivator>(new SimpleInjectorViewComponentActivator(container));                        
+            services.UseSimpleInjectorAspNetRequestScoping(container);
         }
     }
 
@@ -118,7 +137,6 @@ namespace BlazorSimpleInjectorMediator
             this SimpleInjectorAddOptions options, params Assembly[] assemblies)
         {
             var services = options.Services;
-
             // Unfortunate nasty hack. We reported this with Microsoft.
             services.AddTransient(
                 typeof(Microsoft.AspNetCore.Components.Server.CircuitOptions)
@@ -133,7 +151,10 @@ namespace BlazorSimpleInjectorMediator
             RegisterBlazorComponents(options, assemblies);
 
             services.AddScoped<ScopeAccessor>();
-            services.AddTransient<ServiceScopeApplier>();
+            services.AddTransient<ServiceScopeApplier>();            
+            //var rmtypes = services.Where(s => s.ServiceType == typeof(NavigationManager) && s.ImplementationType.Name.Contains("Remote")).ToList();
+            //var rmtype = services.First(s => s.ServiceType == typeof(NavigationManager) && s.ImplementationType.Name.Contains("Remote")).ImplementationType;
+            //options.Container.Register(typeof(NavigationManager), rmtype, Lifestyle.Scoped);
         }
 
         private static void RegisterBlazorComponents(
@@ -211,9 +232,9 @@ namespace BlazorSimpleInjectorMediator
     {
         private static AsyncScopedLifestyle lifestyle = new AsyncScopedLifestyle();
 
-        private readonly IServiceScope serviceScope;
-        private readonly ScopeAccessor accessor;
-        private readonly Container container;
+        public readonly IServiceScope serviceScope;
+        public readonly ScopeAccessor accessor;
+        public readonly Container container;
 
         public ServiceScopeApplier(
             IServiceProvider requestServices, ScopeAccessor accessor, Container container)
@@ -246,6 +267,12 @@ namespace BlazorSimpleInjectorMediator
     public abstract class BaseComponent : ComponentBase, IHandleEvent
     {
         [Dependency] public ServiceScopeApplier Applier { get; set; }
+        [Dependency] public IScoped TestScopedService { get; set; }
+
+        protected override async Task OnInitializedAsync()
+        {
+            await base.OnInitializedAsync();
+        }
 
         Task IHandleEvent.HandleEventAsync(EventCallbackWorkItem callback, object arg)
         {
@@ -278,4 +305,15 @@ namespace BlazorSimpleInjectorMediator
             base.StateHasChanged();
         }
     }
+
+    public class NavigationManagerWrapper
+    {
+        public NavigationManagerWrapper(NavigationManager navigationManager)
+        {
+            NavigationManager = navigationManager;
+        }
+
+        public NavigationManager NavigationManager { get; }
+    }
+
 }

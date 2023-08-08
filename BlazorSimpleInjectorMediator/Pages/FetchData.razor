@@ -1,9 +1,10 @@
 ﻿@page "/fetchdata"
+@page "/fetchdata/{TestParamValue}"
 @inherits BaseComponent
 
 @using BlazorSimpleInjectorMediator.Data
 @using SimpleInjector;
-
+@using System.Diagnostics;
 
 <PageTitle>Weather forecast</PageTitle>
 
@@ -52,16 +53,38 @@ else
     [Dependency]
     public Container Container { get; set; }
 
+    [Dependency]
+    NavigationManagerWrapper Navigation { get; set; }
     private WeatherForecast[]? forecasts;
+
+    [Parameter]
+    public string TestParamValue { get; set; }
 
     protected override async Task OnInitializedAsync()
     {
+        await base.OnInitializedAsync();
+        WriteScopesToDebug("FetchData OnInitializedAsync");
         forecasts = await ForecastService.GetForecastAsync(DateOnly.FromDateTime(DateTime.Now));
     }
 
     private void Test()
     {
-        var scope = ScopedLifestyle.Scoped.GetCurrentScope(Container);
-        ScopedCaller.CallScoped();
+        WriteScopesToDebug("Test() button click handler");
+        var value = "TEST";
+        Navigation.NavigationManager.NavigateTo($"/fetchdata/{value}");
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        WriteScopesToDebug("FetchData OnParametersSetAsync");
+        await base.OnParametersSetAsync();
+    }
+
+    private void WriteScopesToDebug(string header)
+    {
+        Debug.WriteLine(header);
+        var cscope = SimpleInjector.Lifestyles.AsyncScopedLifestyle.Scoped.GetCurrentScope(Container);
+        Debug.WriteLine($"GetCurrentScope: {cscope!.GetHashCode()}");
+        Debug.WriteLine($"Applier Scope: {base.Applier.accessor.Scope!.GetHashCode()}");
     }
 }

@@ -1,0 +1,22 @@
+﻿@using SimpleInjector;
+@using SimpleInjector.Lifestyles;
+@inherits BaseComponent
+<h3>Test1</h3>
+
+@code {
+    [Parameter] public string TestParam { get; set; }
+    [Dependency] public Container Container { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await base.OnInitializedAsync();
+        var cscope = AsyncScopedLifestyle.Scoped.GetCurrentScope(Container);
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var cscope = AsyncScopedLifestyle.Scoped.GetCurrentScope(Container);
+        await base.OnParametersSetAsync();
+        cscope = AsyncScopedLifestyle.Scoped.GetCurrentScope(Container);
+    }
+}

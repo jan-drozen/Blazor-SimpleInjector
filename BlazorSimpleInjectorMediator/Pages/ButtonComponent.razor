@@ -1,0 +1,12 @@
+﻿@inherits BaseComponent
+<button type="button" @onclick="SetValue"> Button component </button>
+
+@code {
+    [Parameter]
+    public EventCallback<string> OnValueSet {get;set;}
+    
+    public async Task SetValue()
+    {
+        await OnValueSet.InvokeAsync("VALUE-SET-FROM-BUTTON-COMPONENT");
+    }
+}
